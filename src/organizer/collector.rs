@@ -1,22 +1,82 @@
 use crate::organizer::media::{MediaFile, MediaType, IMAGE_FORMATS, VIDEO_FORMATS};
-use chrono::{DateTime, Local};
-use color_eyre::Result;
+use crate::organizer::printer::print;
+use chrono::Local;
+use colored::{Color, Colorize};
 use std::ffi::OsStr;
 use std::path::PathBuf;
-use walkdir::{DirEntry, WalkDir};
+use walkdir::WalkDir;
 
-#[derive(Debug, Default)]
-struct Stat {
-    images: usize,
-    image_size: usize,
-    videos: usize,
-    video_size: usize,
-    total_size: usize,
+trait HumanReadable {
+    fn to_human(self) -> String;
+}
+
+impl HumanReadable for u64 {
+    fn to_human(self) -> String {
+        match self {
+            0..=999 => self.to_string(),
+            1000..=999_999 => {
+                format!("{:.1} KB", self as f64 / 1000f64)
+            }
+            1_000_000..=999_999_999 => {
+                format!("{:.1} MB", self as f64 / 1_000_000f64)
+            }
+            1_000_000_000.. => {
+                format!("{:.1} MB", self as f64 / 1_000_000_000f64)
+            }
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone)]
+pub struct Stat {
+    images: u64,
+    images_size: u64,
+    videos: u64,
+    videos_size: u64,
+    total_size: u64,
+}
+
+impl Stat {
+    fn add_media(&mut self, media_type: &MediaType, size: u64) {
+        match media_type {
+            MediaType::Image => {
+                self.images += 1;
+                self.images_size += size;
+                self.total_size += size;
+            }
+            MediaType::Video => {
+                self.videos += 1;
+                self.videos_size += size;
+                self.total_size += size;
+            }
+        }
+    }
+
+    pub fn print_stat(&self) {
+        print("Result: ", None);
+        println!("{}{}", "Number of images: ".green(), self.images);
+        print(
+            format!("Size of images: {}", self.images_size.to_human()).as_str(),
+            Some(Color::Green),
+        );
+        print(
+            format!("Number of videos: {}", self.videos).as_str(),
+            Some(Color::Green),
+        );
+        print(
+            format!("Size of videos: {}", self.videos_size.to_human()).as_str(),
+            Some(Color::Green),
+        );
+        print(
+            format!("Total size: {}", self.total_size.to_human()).as_str(),
+            Some(Color::Green),
+        );
+    }
 }
 
 #[derive(Debug)]
-struct Collector<'f> {
-    media: Vec<MediaFile<'f>>,
+pub struct Collector {
+    media: Vec<MediaFile>,
     stat: Stat,
 }
 
@@ -32,66 +92,79 @@ fn get_media_type(suffix: &OsStr) -> Option<MediaType> {
     None
 }
 
-impl<'f> Collector<'f> {
-    fn new() -> Self {
+impl Collector {
+    pub fn new() -> Self {
         Self {
             media: Vec::new(),
             stat: Stat::default(),
         }
     }
 
-    fn collect(&mut self, path: PathBuf, recursive: bool, verbose: bool) -> Result<()> {
+    pub fn get_stats(&self) -> &Stat {
+        &self.stat
+    }
+
+    pub fn collect(&mut self, path: &PathBuf, recursive: &bool, verbose: &bool) -> Vec<MediaFile> {
         let walker = match recursive {
             true => WalkDir::new(path),
-            false => WalkDir::new(path).min_depth(0).max_depth(0),
+            false => WalkDir::new(path).min_depth(0).max_depth(1),
         };
-        let collected_files = walker
+        print(
+            format!("Analysing source path ({:?}) for media files...", path).as_str(),
+            Some(Color::Green),
+        );
+        walker
             .into_iter()
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.metadata().is_ok() && entry.metadata().unwrap().is_file())
-            .collect::<Vec<_>>();
+            .filter(|entry| {
+                if let Some(entension) = entry.path().extension() {
+                    if get_media_type(entension).is_some() {
+                        return true;
+                    }
+                }
+                false
+            })
+            .filter_map(|entry| self.convert_entry_to_media_file(entry))
+            .collect::<Vec<_>>()
     }
 
-    fn convert_entries_to_media_files(entries: Vec<DirEntry>) -> Vec<MediaFile<'f>> {
-        let mut media_files = Vec::<MediaFile>::new();
-        for entry in entries {
-            if entry.file_name().to_str().is_some() {
-                let name = entry.file_name().to_str().unwrap();
-                let mut created_at = Local::now();
-                if let Ok(time) = entry.metadata().unwrap().created() {
-                    created_at = time.into();
-                } else {
-                    println!("Not supported on this platform or filesystem");
-                    continue;
-                }
-                let size = entry.metadata().unwrap().len();
-                let mut media_type = MediaType::Image;
-                if let Some(entension) = entry.path().extension() {
-                    if let Some(m_type) = get_media_type(entension) {
-                        media_type = m_type
-                    } else {
-                        println!(
-                            "No file extension found ({:?}). Cannot determine file type. Skipping...",
-                            entry.path()
-                        );
-                        continue;
-                    }
+    fn convert_entry_to_media_file(&mut self, entry: walkdir::DirEntry) -> Option<MediaFile> {
+        if let Ok(name) = entry.file_name().to_os_string().into_string() {
+            let mut created_at = Local::now();
+            if let Ok(time) = entry.metadata().unwrap().created() {
+                created_at = time.into();
+            } else {
+                println!("Not supported on this platform or filesystem");
+                return None;
+            }
+            let size = entry.metadata().unwrap().len();
+            let mut media_type = MediaType::Image;
+            if let Some(entension) = entry.path().extension() {
+                if let Some(m_type) = get_media_type(entension) {
+                    media_type = m_type
                 } else {
                     println!(
                         "No file extension found ({:?}). Cannot determine file type. Skipping...",
                         entry.path()
                     );
-                    continue;
+                    return None;
                 }
-                media_files.push(MediaFile::new(name, created_at, media_type, size));
             } else {
                 println!(
-                    "Unable to convert file name {:?}. Possibly not valid UTF-8. Skipping...",
-                    entry.file_name()
+                    "No file extension found ({:?}). Cannot determine file type. Skipping...",
+                    entry.path()
                 );
-                continue;
+                return None;
             }
+            self.stat.add_media(&media_type, size);
+            Some(MediaFile::new(name, created_at, media_type, size))
+        } else {
+            println!(
+                "Unable to convert file name {:?}. Possibly not valid UTF-8. Skipping...",
+                entry.file_name()
+            );
+            None
         }
-        media_files
     }
 }

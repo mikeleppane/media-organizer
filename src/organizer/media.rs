@@ -3,8 +3,9 @@ use chrono::{DateTime, Local};
 pub const IMAGE_FORMATS: [&str; 4] = ["jpeg", "jpg", "gif", "png"];
 pub const VIDEO_FORMATS: [&str; 1] = ["mp4"];
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub enum MediaType {
+    #[default]
     Image,
     Video,
 }
@@ -32,16 +33,16 @@ impl<'img> Formats<'img> {
     }
 }
 
-#[derive(Debug)]
-pub struct MediaFile<'f> {
-    name: &'f str,
+#[derive(Debug, Default)]
+pub struct MediaFile {
+    name: String,
     created_at: DateTime<Local>,
     r#type: MediaType,
     size: u64,
 }
 
-impl<'f> MediaFile<'f> {
-    pub fn new(name: &str, created_at: DateTime<Local>, r#type: MediaType, size: u64) -> Self {
+impl MediaFile {
+    pub fn new(name: String, created_at: DateTime<Local>, r#type: MediaType, size: u64) -> Self {
         Self {
             name,
             created_at,
