@@ -1,4 +1,4 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Datelike, Local};
 
 pub const IMAGE_FORMATS: [&str; 4] = ["jpeg", "jpg", "gif", "png"];
 pub const VIDEO_FORMATS: [&str; 1] = ["mp4"];
@@ -35,7 +35,7 @@ impl<'img> Formats<'img> {
 
 #[derive(Debug, Default)]
 pub struct MediaFile {
-    name: String,
+    pub name: String,
     created_at: DateTime<Local>,
     r#type: MediaType,
     size: u64,
@@ -48,6 +48,34 @@ impl MediaFile {
             created_at,
             r#type,
             size,
+        }
+    }
+
+    pub fn is_image(&self) -> bool {
+        match self.r#type {
+            MediaType::Image => true,
+            MediaType::Video => false,
+        }
+    }
+
+    pub fn year(&self) -> String {
+        self.created_at.year().to_string()
+    }
+    pub fn month(&self) -> &str {
+        match self.created_at.month() {
+            1 => "January",
+            2 => "February",
+            3 => "March",
+            4 => "April",
+            5 => "May",
+            6 => "June",
+            7 => "July",
+            8 => "August",
+            9 => "September",
+            10 => "October",
+            11 => "November",
+            12 => "December",
+            _ => panic!("Not a month"),
         }
     }
 }

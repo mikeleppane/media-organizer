@@ -1,12 +1,14 @@
-use crate::organizer::media::{MediaFile, MediaType, IMAGE_FORMATS, VIDEO_FORMATS};
-use crate::organizer::printer::print;
-use chrono::Local;
-use colored::{Color, Colorize};
 use std::ffi::OsStr;
 use std::path::PathBuf;
+
+use chrono::Local;
+use colored::{Color, Colorize};
 use walkdir::WalkDir;
 
-trait HumanReadable {
+use crate::organizer::media::{MediaFile, MediaType, IMAGE_FORMATS, VIDEO_FORMATS};
+use crate::organizer::printer::print;
+
+trait HumanReadable: Sized {
     fn to_human(self) -> String;
 }
 
@@ -21,7 +23,7 @@ impl HumanReadable for u64 {
                 format!("{:.1} MB", self as f64 / 1_000_000f64)
             }
             1_000_000_000.. => {
-                format!("{:.1} MB", self as f64 / 1_000_000_000f64)
+                format!("{:.1} GB", self as f64 / 1_000_000_000f64)
             }
         }
     }
@@ -104,7 +106,19 @@ impl Collector {
         &self.stat
     }
 
-    pub fn collect(&mut self, path: &PathBuf, recursive: &bool, verbose: &bool) -> Vec<MediaFile> {
+    pub fn get_files(&self) -> &Vec<MediaFile> {
+        &self.media
+    }
+
+    pub fn get_images(&self) -> Vec<&MediaFile> {
+        self.media.iter().filter(|&f| f.is_image()).collect::<_>()
+    }
+
+    pub fn get_videos(&self) -> Vec<&MediaFile> {
+        self.media.iter().filter(|&f| !f.is_image()).collect::<_>()
+    }
+
+    pub fn collect(&mut self, path: &PathBuf, recursive: &bool, verbose: &bool) {
         let walker = match recursive {
             true => WalkDir::new(path),
             false => WalkDir::new(path).min_depth(0).max_depth(1),
@@ -113,7 +127,7 @@ impl Collector {
             format!("Analysing source path ({:?}) for media files...", path).as_str(),
             Some(Color::Green),
         );
-        walker
+        self.media = walker
             .into_iter()
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.metadata().is_ok() && entry.metadata().unwrap().is_file())
@@ -132,13 +146,17 @@ impl Collector {
     fn convert_entry_to_media_file(&mut self, entry: walkdir::DirEntry) -> Option<MediaFile> {
         if let Ok(name) = entry.file_name().to_os_string().into_string() {
             let mut created_at = Local::now();
-            if let Ok(time) = entry.metadata().unwrap().created() {
+            if let Ok(time) = entry
+                .metadata()
+                .expect(format!("Cannot get size for a file: {}. Perhaps there's no permissions to access the file?", name).as_str())
+                .modified()
+            {
                 created_at = time.into();
             } else {
                 println!("Not supported on this platform or filesystem");
                 return None;
             }
-            let size = entry.metadata().unwrap().len();
+            let size = entry.metadata().expect(format!("Cannot get size for a file: {}. Perhaps there's no permissions to access the file?", name).as_str()).len();
             let mut media_type = MediaType::Image;
             if let Some(entension) = entry.path().extension() {
                 if let Some(m_type) = get_media_type(entension) {

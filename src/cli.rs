@@ -1,9 +1,8 @@
-use clap::Parser;
 use std::path::{Path, PathBuf};
 
+use clap::Parser;
+
 /// About Media Organizer
-/// asdsdfsdsfsdf
-/// sdgergergergergerrge
 #[derive(Parser, Debug)]
 #[clap(
     author = "Mikko Leppänen <mleppan23@gmail.com>",
