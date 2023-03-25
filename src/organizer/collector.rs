@@ -1,11 +1,10 @@
 use std::ffi::OsStr;
 use std::path::PathBuf;
 
-use chrono::Local;
 use colored::{Color, Colorize};
 use walkdir::WalkDir;
 
-use crate::organizer::media::{MediaFile, MediaType, IMAGE_FORMATS, VIDEO_FORMATS};
+use crate::organizer::media::{Formats, MediaFile, MediaType};
 use crate::organizer::printer::print;
 
 trait HumanReadable: Sized {
@@ -79,33 +78,28 @@ impl Stat {
 #[derive(Debug)]
 pub struct Collector {
     media: Vec<MediaFile>,
+    pub formats: Formats,
     stat: Stat,
-}
-
-fn get_media_type(suffix: &OsStr) -> Option<MediaType> {
-    if let Some(suffix) = suffix.to_str() {
-        if IMAGE_FORMATS.contains(&suffix) {
-            return Some(MediaType::Image);
-        }
-        if VIDEO_FORMATS.contains(&suffix) {
-            return Some(MediaType::Video);
-        }
-    }
-    None
 }
 
 impl Collector {
     pub fn new() -> Self {
         Self {
             media: Vec::new(),
+            formats: Formats::new(),
             stat: Stat::default(),
         }
+    }
+
+    fn get_media_type(&mut self, suffix: &OsStr) -> Option<MediaType> {
+        self.formats.get_media_type(suffix)
     }
 
     pub fn get_stats(&self) -> &Stat {
         &self.stat
     }
 
+    #[allow(dead_code)]
     pub fn get_files(&self) -> &Vec<MediaFile> {
         &self.media
     }
@@ -114,11 +108,12 @@ impl Collector {
         self.media.iter().filter(|&f| f.is_image()).collect::<_>()
     }
 
+    #[allow(dead_code)]
     pub fn get_videos(&self) -> Vec<&MediaFile> {
         self.media.iter().filter(|&f| !f.is_image()).collect::<_>()
     }
 
-    pub fn collect(&mut self, path: &PathBuf, recursive: &bool, verbose: &bool) {
+    pub fn collect(&mut self, path: &PathBuf, recursive: &bool, _verbose: &bool) {
         let walker = match recursive {
             true => WalkDir::new(path),
             false => WalkDir::new(path).min_depth(0).max_depth(1),
@@ -131,36 +126,35 @@ impl Collector {
             .into_iter()
             .filter_map(|entry| entry.ok())
             .filter(|entry| entry.metadata().is_ok() && entry.metadata().unwrap().is_file())
-            .filter(|entry| {
+            .filter_map(|entry| {
                 if let Some(entension) = entry.path().extension() {
-                    if get_media_type(entension).is_some() {
-                        return true;
+                    if self.get_media_type(entension).is_some() {
+                        if let Some(media) = self.convert_entry_to_media_file(entry) {
+                            return Some(media);
+                        }
                     }
                 }
-                false
+                None
             })
-            .filter_map(|entry| self.convert_entry_to_media_file(entry))
             .collect::<Vec<_>>()
     }
 
     fn convert_entry_to_media_file(&mut self, entry: walkdir::DirEntry) -> Option<MediaFile> {
         if let Ok(name) = entry.file_name().to_os_string().into_string() {
-            let mut created_at = Local::now();
-            if let Ok(time) = entry
+            let created_at = if let Ok(time) = entry
                 .metadata()
-                .expect(format!("Cannot get size for a file: {}. Perhaps there's no permissions to access the file?", name).as_str())
+                .unwrap_or_else(|_| panic!("Cannot get size for a file: {}. Perhaps there's no permissions to access the file?", name))
                 .modified()
             {
-                created_at = time.into();
+                time.into()
             } else {
                 println!("Not supported on this platform or filesystem");
                 return None;
-            }
-            let size = entry.metadata().expect(format!("Cannot get size for a file: {}. Perhaps there's no permissions to access the file?", name).as_str()).len();
-            let mut media_type = MediaType::Image;
-            if let Some(entension) = entry.path().extension() {
-                if let Some(m_type) = get_media_type(entension) {
-                    media_type = m_type
+            };
+            let size = entry.metadata().unwrap_or_else(|_| panic!("Cannot get size for a file: {}. Perhaps there's no permissions to access the file?", name)).len();
+            let media_type = if let Some(entension) = entry.path().extension() {
+                if let Some(m_type) = self.formats.get_media_type(entension) {
+                    m_type
                 } else {
                     println!(
                         "No file extension found ({:?}). Cannot determine file type. Skipping...",
@@ -174,7 +168,7 @@ impl Collector {
                     entry.path()
                 );
                 return None;
-            }
+            };
             self.stat.add_media(&media_type, size);
             Some(MediaFile::new(name, created_at, media_type, size))
         } else {

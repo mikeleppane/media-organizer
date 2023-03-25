@@ -1,7 +1,12 @@
+use std::ffi::OsStr;
+
 use chrono::{DateTime, Datelike, Local};
 
-pub const IMAGE_FORMATS: [&str; 4] = ["jpeg", "jpg", "gif", "png"];
-pub const VIDEO_FORMATS: [&str; 1] = ["mp4"];
+pub const IMAGE_FORMATS: [&str; 8] = ["jpeg", "jpg", "gif", "png", "svg", "tiff", "tif", "webp"];
+pub const VIDEO_FORMATS: [&str; 14] = [
+    "webm", "mkv", "flv", "ogg", "ogv", "avi", "m2v", "m4v", "mpg", "mpeg", "mp4", "asf", "rmvb",
+    "wmv",
+];
 
 #[derive(Debug, PartialEq, Eq, Default)]
 pub enum MediaType {
@@ -11,24 +16,36 @@ pub enum MediaType {
 }
 
 #[derive(Debug)]
-struct Formats<'img> {
-    image: Vec<&'img str>,
-    video: Vec<&'img str>,
+pub struct Formats {
+    image: Vec<String>,
+    video: Vec<String>,
 }
 
-impl<'img> Formats<'img> {
-    fn new() -> Self {
+impl Formats {
+    pub fn new() -> Self {
         Self {
-            image: IMAGE_FORMATS.to_vec(),
-            video: VIDEO_FORMATS.to_vec(),
+            image: IMAGE_FORMATS.iter().map(|&img| img.to_string()).collect(),
+            video: VIDEO_FORMATS.iter().map(|&img| img.to_string()).collect(),
         }
     }
 
-    fn add_image(&mut self, format: &'img str) {
+    pub fn get_media_type(&self, suffix: &OsStr) -> Option<MediaType> {
+        if let Some(suffix) = suffix.to_str() {
+            if self.image.iter().any(|img| img == suffix) {
+                return Some(MediaType::Image);
+            }
+            if self.video.iter().any(|video| video == suffix) {
+                return Some(MediaType::Video);
+            }
+        }
+        None
+    }
+
+    pub fn add_image(&mut self, format: String) {
         self.image.push(format);
     }
 
-    fn add_video(&mut self, format: &'img str) {
+    pub fn add_video(&mut self, format: String) {
         self.video.push(format);
     }
 }
@@ -38,6 +55,7 @@ pub struct MediaFile {
     pub name: String,
     created_at: DateTime<Local>,
     r#type: MediaType,
+    #[allow(dead_code)]
     size: u64,
 }
 

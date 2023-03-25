@@ -3,10 +3,9 @@ use colored::Color;
 
 use crate::cli::Args;
 use crate::organizer::collector::Collector;
-use crate::organizer::media::{MediaFile, MediaType};
+use crate::organizer::media::MediaFile;
 use crate::organizer::printer::print;
 
-#[derive(Debug)]
 pub struct MediaOrganizer {
     collector: Collector,
     options: Args,
@@ -20,7 +19,25 @@ impl MediaOrganizer {
         }
     }
 
+    pub fn check_additional_formats(&mut self) {
+        if !self.options.include_image_format.is_empty() {
+            let _ = self
+                .options
+                .include_image_format
+                .split(',')
+                .map(|format| self.collector.formats.add_image(format.trim().to_string()));
+        }
+        if !self.options.include_video_format.is_empty() {
+            let _ = self
+                .options
+                .include_video_format
+                .split(',')
+                .map(|format| self.collector.formats.add_video(format.trim().to_string()));
+        }
+    }
+
     pub fn run(&mut self) -> Result<()> {
+        self.check_additional_formats();
         print("", None);
         print(
             "*************** Media Organizer ***************",
